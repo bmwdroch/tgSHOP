@@ -1,72 +1,105 @@
-# - *- coding: utf- 8 - *-
 import asyncio
 import os
 import sys
+import configparser
 
-import colorama
-from aiogram import Dispatcher, Bot
+from aiogram import Bot, Dispatcher
+from aiogram.enums import ParseMode
+from aiogram.utils.token import validate_token, TokenValidationError
 
-from tgbot.data.config import get_admins, BOT_TOKEN, BOT_SCHEDULER
+from tgbot.data.config import get_admins, BOT_SCHEDULER
 from tgbot.database.db_helper import create_dbx
+from tgbot.database.db_settings import Settingsx
 from tgbot.middlewares import register_all_middlwares
 from tgbot.routers import register_all_routers
 from tgbot.services.api_session import AsyncRequestSession
 from tgbot.utils.misc.bot_commands import set_commands
 from tgbot.utils.misc.bot_logging import bot_logger
-from tgbot.utils.misc.bot_models import ARS
-from tgbot.utils.misc_functions import (check_bot_username, startup_notify, update_profit_day,
-                                        update_profit_week, autobackup_admin, update_profit_month,
-                                        autosettings_unix)
+from tgbot.utils.misc_functions import check_bot_username, startup_notify, autosettings_unix
 
-colorama.init()
+def update_config(token: str, admin_id: str):
+    config = configparser.ConfigParser()
+    config.read('settings.ini')
+    
+    if 'settings' not in config:
+        config['settings'] = {}
+    
+    config['settings']['token'] = token
+    config['settings']['admin_id'] = admin_id
+    
+    with open('settings.ini', 'w') as configfile:
+        config.write(configfile)
 
+def get_console_input():
+    while True:
+        token = input("Введите токен бота: ").strip()
+        try:
+            validate_token(token)
+            break
+        except TokenValidationError:
+            print("Неверный формат токена. Попробуйте еще раз.")
+    
+    admin_id = input("Введите ID администратора: ").strip()
+    return token, admin_id
 
-# Запуск шедулеров
-async def scheduler_start(bot: Bot, arSession: ARS):
-    BOT_SCHEDULER.add_job(update_profit_month, trigger="cron", day=1, hour=00, minute=00, second=5)
-    BOT_SCHEDULER.add_job(update_profit_week, trigger="cron", day_of_week="mon", hour=00, minute=00, second=10)
-    BOT_SCHEDULER.add_job(update_profit_day, trigger="cron", hour=00, minute=00, second=15, args=(bot,))
-    BOT_SCHEDULER.add_job(autobackup_admin, trigger="cron", hour=00, args=(bot,))
+def get_bot_token():
+    config = configparser.ConfigParser()
+    config.read('settings.ini')
+    
+    while True:
+        if 'settings' in config and 'token' in config['settings']:
+            token = config['settings']['token']
+            try:
+                validate_token(token)
+                return token
+            except TokenValidationError:
+                print("Токен в файле настроек недействителен.")
+        
+        print("Токен бота не найден или недействителен. Пожалуйста, введите новый токен.")
+        token, admin_id = get_console_input()
+        update_config(token, admin_id)
+        
+        # Перезагрузка конфигурации после обновления
+        config.read('settings.ini')
 
-# Запуск бота и базовых функций
 async def main():
-    BOT_SCHEDULER.start()  # Запуск Шедулера
-    dp = Dispatcher()  # Образ Диспетчера
-    arSession = AsyncRequestSession()  # Пул асинхронной сессии запросов
-    bot = Bot(token=BOT_TOKEN, parse_mode="HTML")  # Образ Бота
+    bot_token = get_bot_token()
+    bot = Bot(token=bot_token, parse_mode=ParseMode.HTML)
+    dp = Dispatcher()
+    arSession = AsyncRequestSession()
 
-    register_all_middlwares(dp)  # Регистрация всех мидлварей
-    register_all_routers(dp)  # Регистрация всех роутеров
+    BOT_SCHEDULER.start()
+
+    register_all_middlwares(dp)
+    register_all_routers(dp)
+
+    create_dbx()
+
+    settings = Settingsx.get()
+    if settings is None:
+        print("Настройки не найдены. Добавляем начальные настройки.")
+        Settingsx.add(bot_token, get_admins()[0] if get_admins() else "")
 
     try:
-        await autosettings_unix()  # Автонастройка UNIX времени в БД
-        await set_commands(bot)  # Установка команд
-        await check_bot_username(bot)  # Проверка юзернейма бота в БД
-        await startup_notify(bot, arSession)  # Рассылка при запуске бота
-        await scheduler_start(bot, arSession)  # Подключение шедулеров
+        await autosettings_unix()
+        await set_commands(bot)
+        await check_bot_username(bot)
+        await startup_notify(bot, arSession)
 
         bot_logger.warning("BOT WAS STARTED")
-        print(colorama.Fore.LIGHTYELLOW_EX + f"~~~~~ Bot was started - @{(await bot.get_me()).username} ~~~~~")
-        print(colorama.Fore.RESET)
+        print(f"~~~~~ Bot was started - @{(await bot.get_me()).username} ~~~~~")
 
-        if len(get_admins()) == 0: print("***** ENTER ADMIN ID IN settings.ini *****")
+        if len(get_admins()) == 0:
+            print("***** ENTER ADMIN ID IN settings.ini *****")
 
         await bot.delete_webhook()
         await bot.get_updates(offset=-1)
-
-        await dp.start_polling(
-            bot,
-            allowed_updates=dp.resolve_used_update_types(),
-            arSession=arSession,
-        )
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types(), arSession=arSession)
     finally:
         await arSession.close()
         await bot.session.close()
 
-
 if __name__ == "__main__":
-    create_dbx()  # Генерация БД и таблиц
-
     try:
         asyncio.run(main())
     except (KeyboardInterrupt, SystemExit):

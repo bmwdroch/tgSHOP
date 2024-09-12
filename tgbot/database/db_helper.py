@@ -36,13 +36,13 @@ def create_dbx():
     with sqlite3.connect(PATH_DATABASE) as con:
         con.row_factory = dict_factory
 
-        # Создание таблицы с настройками
+        # Проверка и создание таблицы с настройками
         if len(con.execute("PRAGMA table_info(storage_settings)").fetchall()) == 10:
             print("DB was found(1/9)")
         else:
             con.execute(
                 ded("""
-                    CREATE TABLE storage_settings(
+                    CREATE TABLE IF NOT EXISTS storage_settings(
                         status_work TEXT,
                         status_refill TEXT,
                         status_buy TEXT,
@@ -56,7 +56,6 @@ def create_dbx():
                     )
                 """)
             )
-
             con.execute(
                 ded("""
                     INSERT INTO storage_settings(
@@ -68,13 +67,13 @@ def create_dbx():
             )
             print("DB was not found(1/9) | Creating...")
 
-        # Создание таблицы с хранением - пользователей
+        # Проверка и создание таблицы с хранением пользователей
         if len(con.execute("PRAGMA table_info(storage_users)").fetchall()) == 8:
             print("DB was found(2/9)")
         else:
             con.execute(
                 ded("""
-                    CREATE TABLE storage_users(
+                    CREATE TABLE IF NOT EXISTS storage_users(
                         increment INTEGER PRIMARY KEY AUTOINCREMENT,
                         user_id INTEGER,
                         user_login TEXT,
@@ -88,13 +87,13 @@ def create_dbx():
             )
             print("DB was not found(2/9) | Creating...")
 
-        # Создание таблицы с хранением - платежных систем
-        if len(con.execute("PRAGMA table_info(storage_payment)").fetchall()) == 7:
+        # Проверка и создание таблицы с хранением платежных систем
+        if len(con.execute("PRAGMA table_info(storage_payment)").fetchall()) == 4:
             print("DB was found(3/9)")
         else:
             con.execute(
                 ded("""
-                    CREATE TABLE storage_payment(
+                    CREATE TABLE IF NOT EXISTS storage_payment(
                         yoomoney_token TEXT,
                         way_yoomoney TEXT,
                         crypto_bot_token TEXT,
@@ -111,9 +110,9 @@ def create_dbx():
                         crypto_bot_token,
                         way_crypto_bot
                     ) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?)
                 """),
-                ['None', 'None', 'None', 'False', 'False', 'None', 'False']
+                ['None', 'False', 'None', 'False']
             )
             print("DB was not found(3/9) | Creating...")
 
@@ -236,3 +235,5 @@ def create_dbx():
                 """)
             )
             print("DB was not found(9/9) | Creating...")
+
+print("Database check and creation completed.")
